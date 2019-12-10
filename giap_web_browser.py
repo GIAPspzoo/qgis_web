@@ -21,9 +21,10 @@
  *                                                                         *
  ***************************************************************************/
 """
-from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
-from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtWidgets import QAction
+from PyQt5.QtCore import QSettings, QTranslator, QCoreApplication
+from PyQt5.QtGui import QIcon
+from PyQt5.QtWidgets import QAction
+from qgis.core import *
 
 # Initialize Qt resources from file resources.py
 from .resources import *
@@ -66,6 +67,9 @@ class GiapWebBrowser:
         # Check if plugin was started the first time in current QGIS session
         # Must be set in initGui() to survive plugin reloads
         self.first_start = None
+        self.layer = None
+        self.edit_finished = None
+        self.action_add = None
 
     # noinspection PyMethodMayBeStatic
     def tr(self, message):
@@ -182,19 +186,44 @@ class GiapWebBrowser:
 
     def run(self):
         """Run method that performs all the real work"""
-
-        # Create the dialog with elements (after translation) and keep reference
-        # Only create GUI ONCE in callback, so that it will only load when the plugin is started
-        if self.first_start == True:
+        if self.first_start:
             self.first_start = False
             self.dlg = GiapWebBrowserDialog()
+            self.prepare_layer()
+        self.add_point()
 
-        # show the dialog
-        self.dlg.show()
-        # Run the dialog event loop
-        result = self.dlg.exec_()
-        # See if OK was pressed
-        if result:
-            # Do something useful here - delete the line containing pass and
-            # substitute with your code.
-            pass
+    def show_yt(self, fid):
+        if not self.edit_finished:
+            request = QgsFeatureRequest().setFilterFid(fid)
+            feat = QgsFeature()
+            for feature in self.layer.getFeatures(request):
+                feat = feature
+            point = feat.geometry().asPoint()
+            print(point.x(), ', ', point.y())
+            self.dlg.load_url('https://www.youtube.com/?gl=PL')
+            self.dlg.showMaximized()
+            result = self.dlg.exec_()
+            if result:
+                self.edit_finished = True
+                self.layer.commitChanges()
+            else:
+                self.layer.rollBack()
+
+    def prepare_layer(self):
+        for layer in QgsProject.instance().mapLayers().values():
+            if layer.name() == 'punkciki':
+                self.layer = layer
+        if not self.layer:
+            self.layer = QgsProject.instance().mapLayers().values()[0]
+        for child in self.iface.mainWindow().children():
+            if child.objectName() == 'mActionAddFeature':
+                self.action_add = child
+        self.layer.featureAdded.connect(self.show_yt)
+
+    def add_point(self):
+        self.edit_finished = False
+        self.layer.startEditing()
+        self.layer.editFormConfig().setSuppress(1)
+        self.iface.setActiveLayer(self.layer)
+        self.action_add.trigger()
+
